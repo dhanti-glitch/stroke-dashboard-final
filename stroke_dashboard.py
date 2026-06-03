@@ -9,6 +9,10 @@ Original file is located at
 
 import streamlit as st
 import pandas as pd
+import numpy as np
+import tensorflow as tf
+import pickle
+import os
 import matplotlib.pyplot as plt
 import seaborn as sns
 import plotly.express as px
@@ -30,6 +34,34 @@ def load_data():
     return df
 
 df = load_data()
+
+# ====================================================================
+# 🛠️ [SISI AI ENGINEER] LANGKAH 1: MEMUAT ASSET NEURAL NETWORK
+# ====================================================================
+@st.cache_resource  # Mencegah web lemot karena me-load ulang model terus-menerus
+def load_stroke_ai_assets():
+    model_path = 'models/saved_model/stroke_prediction_model'
+    scaler_path = 'models/scaler.pkl'
+    encoder_path = 'models/label_encoders.pkl'
+    
+    # Keras 3 / TF 2.21+ menggunakan TFSMLayer untuk memuat format SavedModel lama
+    model = tf.keras.layers.TFSMLayer(model_path, call_endpoint='serving_default')
+    
+    # Load Preprocessing Tools
+    with open(scaler_path, 'rb') as f:
+        scaler = pickle.load(f)
+    with open(encoder_path, 'rb') as f:
+        label_encoders = pickle.load(f)
+        
+    return model, scaler, label_encoders
+
+# Panggil komponen ke memori dashboard
+try:
+    model, scaler, label_encoders = load_stroke_ai_assets()
+except Exception as e:
+    st.error(f"⚠️ Gagal memuat komponen AI. Periksa struktur folder 'models/'. Error: {e}")
+
+# ====================================================================
 
 st.sidebar.image("https://img.icons8.com/color/96/brain.png", width=80)
 st.sidebar.title("🧠 Stroke Risk Dashboard")
@@ -155,7 +187,6 @@ elif menu == "🔍 EDA & Distribusi":
 
     tab1, tab2, tab3 = st.tabs(["📈 Variabel Numerik", "🏷️ Variabel Kategorikal", "🔥 Korelasi"])
 
-    # ── TAB 1: NUMERIK ──────────────────────────────────────────────────────
     with tab1:
         st.subheader("Distribusi Variabel Numerik berdasarkan Status Stroke")
         num_cols = ['age', 'avg_glucose_level', 'bmi']
@@ -170,7 +201,6 @@ elif menu == "🔍 EDA & Distribusi":
             fig.update_layout(height=320, bargap=0.05)
             st.plotly_chart(fig, use_container_width=True)
 
-        # Boxplot
         st.subheader("Boxplot Perbandingan Statistik")
         col_sel = st.selectbox("Pilih variabel:", num_cols,
                                format_func=lambda x: labels[x])
@@ -180,7 +210,6 @@ elif menu == "🔍 EDA & Distribusi":
                      title=f"Boxplot {labels[col_sel]}")
         st.plotly_chart(fig, use_container_width=True)
 
-    # ── TAB 2: KATEGORIKAL ───────────────────────────────────────────────────
     with tab2:
         st.subheader("Distribusi Variabel Kategorikal berdasarkan Status Stroke")
         cat_cols = ['gender', 'ever_married', 'work_type', 'Residence_type', 'smoking_status']
@@ -199,7 +228,6 @@ elif menu == "🔍 EDA & Distribusi":
             fig.update_layout(height=320)
             st.plotly_chart(fig, use_container_width=True)
 
-    # ── TAB 3: KORELASI ──────────────────────────────────────────────────────
     with tab3:
         st.subheader("Heatmap Korelasi Antar Variabel Numerik")
         num_df = df[['age', 'avg_glucose_level', 'bmi', 'hypertension', 'heart_disease', 'stroke']]
@@ -211,7 +239,7 @@ elif menu == "🔍 EDA & Distribusi":
         ax.set_title("Heatmap Korelasi", fontsize=14, fontweight='bold')
         st.pyplot(fig)
 
-        st.markdown("**Insight:** Variabel `age` memiliki korelasi tertinggi dengan `stroke`, diikuti `hypertension` dan `avg_glucose_level`.")
+        st.markdown("**Insight:** Variabel `age` memiliki korelasi tertinggi dengan `stroke`, diikuti `hypertension` and `avg_glucose_level`.")
 
 # ══════════════════════════════════════════════════════════════════════════════
 # PAGE 3: FAKTOR RISIKO
@@ -220,37 +248,17 @@ elif menu == "⚠️ Faktor Risiko":
     st.title("⚠️ Analisis Faktor Risiko Stroke")
     st.markdown("---")
 
-    # Segmentasi Usia
     st.subheader("1. Segmentasi Kelompok Usia terhadap Risiko Stroke")
     bins = [0, 18, 35, 50, 65, 100]
     labels_age = ['0-18', '19-35', '36-50', '51-65', '65+']
     df['age_group'] = pd.cut(df['age'], bins=bins, labels=labels_age, right=False)
 
-    # Feature Engineering
-
-    df["health_risk_score"] = (
-    df["hypertension"]
-    + df["heart_disease"]
-    )
-
-    df["glucose_bmi_risk"] = (
-        df["avg_glucose_level"]
-        * df["bmi"]
-    )
+    df["health_risk_score"] = df["hypertension"] + df["heart_disease"]
+    df["glucose_bmi_risk"] = df["avg_glucose_level"] * df["bmi"]
 
     st.markdown("---")
     st.subheader("Feature Engineering")
-
-    st.dataframe(
-        df[
-            [
-                "age",
-                "age_group",
-                "health_risk_score",
-                "glucose_bmi_risk"
-            ]
-        ].head(10)
-    )
+    st.dataframe(df[["age", "age_group", "health_risk_score", "glucose_bmi_risk"]].head(10))
 
     age_stroke = df.groupby(['age_group', 'stroke_label']).size().reset_index(name='count')
     fig = px.bar(age_stroke, x='age_group', y='count', color='stroke_label', barmode='group',
@@ -259,7 +267,6 @@ elif menu == "⚠️ Faktor Risiko":
                  title="Distribusi Stroke per Kelompok Usia")
     st.plotly_chart(fig, use_container_width=True)
 
-    # Rata-rata Glukosa per Kategori
     st.subheader("2. Rata-rata Kadar Glukosa per Faktor Risiko")
     cat_sel = st.selectbox("Pilih faktor:", ['work_type', 'smoking_status', 'ever_married', 'gender'],
                            format_func=lambda x: {
@@ -273,7 +280,6 @@ elif menu == "⚠️ Faktor Risiko":
                  title=f"Rata-rata Kadar Glukosa berdasarkan {cat_sel}")
     st.plotly_chart(fig, use_container_width=True)
 
-    # Hipertensi & Penyakit Jantung
     st.subheader("3. Pengaruh Hipertensi & Penyakit Jantung")
     col1, col2 = st.columns(2)
 
@@ -295,7 +301,6 @@ elif menu == "⚠️ Faktor Risiko":
                      labels={'heart_disease': 'Penyakit Jantung', 'count': 'Jumlah', 'stroke_label': 'Status'})
         st.plotly_chart(fig, use_container_width=True)
 
-    # Scatter Plot
     st.subheader("4. Scatter Plot: Usia vs Kadar Glukosa")
     fig = px.scatter(df, x='age', y='avg_glucose_level', color='stroke_label',
                      color_discrete_map={"Stroke": "#E74C3C", "Tidak Stroke": "#4A90D9"},
@@ -308,89 +313,118 @@ elif menu == "⚠️ Faktor Risiko":
 # PAGE 4: A/B TESTING
 # ══════════════════════════════════════════════════════════════════════════════
 elif menu == "🧪 A/B Testing":
-
     st.title("🧪 Implementasi A/B Testing")
-
-    st.markdown("""
-    Pengujian dilakukan untuk melihat apakah terdapat
-    hubungan yang signifikan antara hipertensi dan kejadian stroke.
-    """)
+    st.markdown("Pengujian dilakukan untuk melihat apakah terdapat hubungan yang signifikan antara hipertensi dan kejadian stroke.")
 
     from scipy.stats import chi2_contingency
-
-    contingency = pd.crosstab(
-        df["hypertension"],
-        df["stroke"]
-    )
+    contingency = pd.crosstab(df["hypertension"], df["stroke"])
 
     st.subheader("Tabel Kontingensi")
     st.dataframe(contingency)
 
     chi2, p, dof, expected = chi2_contingency(contingency)
-
     col1, col2 = st.columns(2)
-
-    with col1:
-        st.metric("Chi-Square", round(chi2, 3))
-
-    with col2:
-        st.metric("P-Value", round(p, 6))
+    col1.metric("Chi-Square", round(chi2, 3))
+    col2.metric("P-Value", round(p, 6))
 
     if p < 0.05:
-        st.success(
-            "Terdapat hubungan signifikan antara hipertensi dan stroke."
-        )
+        st.success("Terdapat hubungan signifikan antara hipertensi dan stroke.")
     else:
-        st.warning(
-            "Tidak terdapat hubungan signifikan."
-        )
+        st.warning("Tidak terdapat hubungan signifikan.")
 
     st.markdown("""
     **Hipotesis**
-
     - H0 : Tidak ada hubungan hipertensi dengan stroke
     - H1 : Ada hubungan hipertensi dengan stroke
     """)
 
 # ══════════════════════════════════════════════════════════════════════════════
-# PAGE 4: KESIMPULAN
+# PAGE 5: PREDIKSI STROKE [MODIFIKASI TOTAL AI ENGINEER - COMPATIBLE WITH KERAS 3]
 # ══════════════════════════════════════════════════════════════════════════════
 elif menu == "🤖 Prediksi Stroke":
+    st.title("🤖 Prediksi Risiko Stroke dengan Neural Network (95%)")
+    st.markdown("Silakan isi indikator klinis di bawah ini untuk menguji risiko stroke pasien.")
+    st.markdown("---")
 
-    st.title("🤖 Prediksi Risiko Stroke")
+    # Layout Form dibagi menjadi 2 Kolom agar rapi
+    f_col1, f_col2 = st.columns(2)
 
-    age = st.slider("Usia", 0, 100, 45)
-    hypertension = st.selectbox("Hipertensi", [0, 1])
-    heart_disease = st.selectbox("Penyakit Jantung", [0, 1])
-    glucose = st.number_input("Kadar Glukosa", 50.0, 300.0, 100.0)
-    bmi = st.number_input("BMI", 10.0, 100.0, 25.0)
+    with f_col1:
+        gender = st.selectbox("Jenis Kelamin (gender)", ["Male", "Female"])
+        age = st.slider("Usia (age)", 0, 100, 45)
+        hypertension = st.selectbox("Memiliki Hipertensi? (hypertension)", [0, 1], format_func=lambda x: "Ya (1)" if x==1 else "Tidak (0)")
+        heart_disease = st.selectbox("Memiliki Penyakit Jantung? (heart_disease)", [0, 1], format_func=lambda x: "Ya (1)" if x==1 else "Tidak (0)")
+        ever_married = st.selectbox("Pernah Menikah? (ever_married)", ["Yes", "No"])
 
-    risk_score = (
-        age * 0.03
-        + glucose * 0.01
-        + bmi * 0.01
-        + hypertension * 2
-        + heart_disease * 2
-    )
+    with f_col2:
+        work_type = st.selectbox("Jenis Pekerjaan (work_type)", ["Private", "Self-employed", "Govt_job", "children", "Never_worked"])
+        Residence_type = st.selectbox("Tipe Tempat Tinggal (Residence_type)", ["Urban", "Rural"])
+        glucose = st.number_input("Rata-rata Kadar Glukosa (avg_glucose_level)", 50.0, 300.0, 105.0)
+        bmi = st.number_input("Indeks Massa Tubuh / BMI", 10.0, 100.0, 28.0)
+        smoking_status = st.selectbox("Status Merokok (smoking_status)", ["never smoked", "formerly smoked", "smokes", "Unknown"])
 
-    if st.button("Prediksi"):
-        probability = min(risk_score / 10, 1)
-
-        st.metric(
-            "Probabilitas Stroke",
-            f"{probability*100:.1f}%"
-        )
-
-        if probability > 0.5:
-            st.error("Risiko Stroke Tinggi")
+    st.markdown("---")
+    
+    if st.button("🔥 Jalankan Prediksi AI"):
+        # 1. Bungkus input user ke dalam Dataframe sesuai skema pelatihan data di Colab
+        raw_input = pd.DataFrame([{
+            'gender': gender,
+            'age': age,
+            'hypertension': hypertension,
+            'heart_disease': heart_disease,
+            'ever_married': ever_married,
+            'work_type': work_type,
+            'Residence_type': Residence_type,
+            'avg_glucose_level': glucose,
+            'bmi': bmi,
+            'smoking_status': smoking_status
+        }])
+        
+        # 2. Preprocessing Data Kategorikal Menggunakan label_encoders.pkl
+        categorical_cols = ['gender', 'ever_married', 'work_type', 'Residence_type', 'smoking_status']
+        for col in categorical_cols:
+            le = label_encoders[col]
+            raw_input[col] = le.transform(raw_input[col])
+            
+        # 3. Preprocessing Data Numerik Menggunakan scaler.pkl
+        numeric_cols = ['age', 'avg_glucose_level', 'bmi']
+        raw_input[numeric_cols] = scaler.transform(raw_input[numeric_cols])
+        
+        # 4. Tembak Data Hasil Preprocessing ke Model Neural Network (Adaptasi Fungsional Keras 3)
+        # Memanggil layer secara langsung karena TFSMLayer tidak memiliki method .predict()
+        predictions = model(raw_input)
+        
+        # Ekstrak nilai tensor dari output dictionary TFSMLayer secara aman
+        if isinstance(predictions, dict):
+            first_key = list(predictions.keys())[0]
+            prediction_score = float(predictions[first_key][0][0].numpy())
         else:
-            st.success("Risiko Stroke Rendah")
-
+            prediction_score = float(predictions[0][0].numpy())
+        
+       # 5. Tampilkan Visualisasi Hasil Output Kece ke Dashboard
+        st.subheader("📊 Hasil Analisis Kecerdasan Buatan (AI):")
+        
+        # Membuat visual meteran probabilitas sederhana menggunakan widget metric
+        col_res1, col_res2 = st.columns([1, 2])
+        
+        # Hitung nilai persentase asli untuk mempermudah logika coding
+        percentage_score = prediction_score * 100
+        
+        with col_res1:
+            st.metric(label="Probabilitas Risiko", value=f"{percentage_score:.2f}%")
+            
+        with col_res2:
+            # Menggunakan skala persentase langsung (0% - 100%) agar sensitif dan akurat
+            if percentage_score >= 20.0:
+                st.error(f"⚠️ **PERINGATAN:** Pasien terindikasi memiliki potensi **RISIKO TINGGI** terkena stroke ({percentage_score:.2f}%). Segera lakukan pemeriksaan klinis mendalam!")
+            elif 0.50 <= percentage_score < 20.0:
+                st.warning(f"⚡ **WASPADA:** Pasien masuk dalam kategori **RISIKO SEDANG** ({percentage_score:.2f}%). Disarankan untuk mengevaluasi pola makan dan mengontrol tekanan darah.")
+            else:
+                st.success(f"✅ **AMAN:** Pasien dikategorikan memiliki risiko stroke yang **RENDAH** ({percentage_score:.2f}%). Tetap jaga pola hidup sehat!")
 # ══════════════════════════════════════════════════════════════════════════════
-# PAGE 5: KESIMPULAN
+# PAGE 6: KESIMPULAN
 # ══════════════════════════════════════════════════════════════════════════════
 if menu == "📋 Kesimpulan":
-
     st.title("📋 Kesimpulan & Insight")
     st.markdown("---")
 

@@ -1,0 +1,37 @@
+# === File Dataset & Kompresi (Wajib Diabaikan) ===
+archive.zip
+*.csv
+*.zip
+*.rar
+
+# === Environment Virtual Python (Jika ada/akan dibuat nanti) ===
+venv/
+.venv/
+env/
+ENV/
+bin/
+include/
+lib/
+share/
+
+# === Cache Python & Model ===
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+.ipynb_checkpoints/
+
+# === Konfigurasi IDE / Editor ===
+.vscode/
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.swp
+
+# === File Log & Sistem ===
+*.log
+.DS_Store
+Thumbs.db
